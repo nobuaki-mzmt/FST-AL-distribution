@@ -8,10 +8,11 @@
   
   library(stringr)
   library(ggplot2)
+  library(viridis)
   library(ggrastr)
   
   library(survival)
-  
+  library(car)
 }
 
 # FST data
@@ -38,6 +39,27 @@
   ggsave("output/time_development_counties.pdf", 
          device = cairo_pdf, family = "Arial",
          width = 3, height = 3)
+  
+  
+  analysis_df <- df %>%
+    group_by(FirstDetectedYear) %>%
+    summarise(new_detections = n()) %>%
+    tidyr::complete(FirstDetectedYear = min(FirstDetectedYear):max(FirstDetectedYear), fill = list(new_detections = 0)) %>%
+    mutate(time_index = FirstDetectedYear - min(FirstDetectedYear)) 
+  
+  model <- glm(new_detections ~ time_index, family = poisson, data = analysis_df)
+  
+  summary(model)
+  
+  # 3. Visualizing the "Intensity" Trend
+  ggplot(analysis_df, aes(x = FirstDetectedYear, y = new_detections)) +
+    geom_point(color = "#E65100", alpha = 0.6) +
+    geom_smooth(method = "glm", method.args = list(family = "poisson"), 
+                color = "#E65100", fill = "#FFF176") +
+    theme_minimal() +
+    labs(title = "Detection Intensity Modeling",
+         subtitle = "Poisson regression showing the change in detection rate",
+         y = "Number of New Counties", x = "Year")
 }
 
 # Alabama census data
@@ -226,12 +248,19 @@
       popdens_s = scale(pop_density),
       raildens_s = scale(rail_density),
       #railcom_s = scale(num_rail_companies),
-      raillen_s = scale(rail_total_length_km),
+      #raillen_s = scale(rail_total_length_km),
       ISlen_s = scale(total_IS_km),
       ISden_s = scale(IS_density),
       road_s = scale(total_road_km),
       roadden_s = scale(road_density),
     )
+  df_surv[is.na(df_surv)] <- 0
+  
+  # correlation
+  df_mat <- df_surv %>%
+    select(lat_s, popdens_s, raildens_s, roadden_s, IS_presence)
+  cor_mat <- cor(df_mat, method = "spearman")
+  cor_mat
   
   cox_mod <- coxph(
     Surv(year_till_detect, event) ~ 
@@ -244,6 +273,7 @@
   )
 
   summary(cox_mod)
+  Anova(cox_mod)
 
   ph_test <- cox.zph(cox_mod)
   ph_test
@@ -260,8 +290,10 @@
 
   cox_df$term <- factor(
     cox_df$term,
-    levels = rev(c("lat_s",    "popdens_s",          "raildens_s",   "roadden_s", "IS_presenceTRUE")),
-    labels = rev(c("Latitude", "Population density", "Rail density", "Road density", "Interstate presence"
+    levels = rev(c("lat_s",    "popdens_s",          
+                   "raildens_s",   "roadden_s", "IS_presenceTRUE")),
+    labels = rev(c("Latitude", "Population density", 
+                   "Rail density", "Road density", "Interstate presence"
     ))
   )
 
@@ -283,5 +315,43 @@
   ggsave("output/cox_hazard.pdf", , 
          device = cairo_pdf, family = "Arial",
          width = 4, height = 4)
-
+  
+  
+  ## prediction
+  risk_score_pred <- predict(cox_mod, type = "lp")
+  hazard_ratio_pred <- exp(risk_score_pred)
+  
+  risk_map <- al_map_data %>% mutate(
+    hazard_ratio = hazard_ratio_pred,
+    risk_score =risk_score_pred,
+    risk_wo_infect = if_else(is.na(FirstDetectedYear), risk_score, NA),
+    hazard_wo_infect = if_else(is.na(FirstDetectedYear), hazard_ratio, NA))
+  
+  
+  p_hazard <- ggplot(risk_map) +
+    geom_sf(aes(fill = risk_wo_infect), color = "white", size = 0.2) +
+    scale_fill_viridis(name = "Risk score", option = "inferno", direction = -1) +
+    theme_void()
+  p_hazard
+  ggsave("output/AL_FST_risk.pdf", , 
+         device = cairo_pdf, family = "Arial",
+         width = 4, height = 4)
+  
+  sf <- survfit(cox_mod, newdata = df_surv)
+  detect_prob_2025 <- summary(sf, times = 40)
+  
+  detect_prob_2025$newdata
+  as.vector(detect_prob_2025$surv)
+  
+  risk_map %>% 
+    mutate(prop_2025 = 1-as.vector(detect_prob_2025$surv)) %>%
+    arrange(-risk_wo_infect) %>%
+    select(NAME, risk_wo_infect, hazard_wo_infect, prop_2025)
+  
+  
+  
+  ggplot(risk_map) +
+    geom_sf(fill = "gray", color = "white", size = 0.2) +
+    theme_void()
 }
+
