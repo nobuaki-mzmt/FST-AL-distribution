@@ -145,10 +145,17 @@
   
   
   # plot maps
+  library(ggspatial)
   p_FST <- ggplot(al_map_data) +
     geom_sf(aes(fill = FirstDetectedYear), color = "white", size = 0.2) +
     scale_fill_viridis_c(option = "viridis", name = "First detection year") +
-    theme_void()
+    coord_sf(datum = st_crs(4326)) +
+    theme_minimal() +
+    labs(x = "Longitude", y = "Latitude") +
+    theme(
+      panel.grid.major = element_line(),
+      panel.grid.minor = element_blank()
+    )
   ggsave(plot = p_FST, filename = "output/FST_map.pdf", 
          device = cairo_pdf, family = "Arial",
          width = 3, height = 3)
