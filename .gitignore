@@ -1,3 +1,12 @@
+data_fmt
+output
+nhgis0002*
+climdiv*
+data_2000
+data_1992
+data_2000.R
+
+
 # History files
 .Rhistory
 .Rapp.history
