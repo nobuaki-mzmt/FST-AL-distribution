@@ -1,0 +1,750 @@
+# library ----
+{
+  library(sf)         # spatial data
+  library(tigris)     # US Census shapefiles
+  library(dplyr)
+  library(tidyr)
+  library(tidycensus)
+  library(forcats)
+  
+  library(stringr)
+  library(ggplot2)
+  library(viridis)
+  library(ggrastr)
+  library(ggspatial)
+  library(svglite)
+  library(ggnewscale)
+  library(patchwork)
+  
+  library(survival)
+  library(car)
+}
+
+dir.create("output", showWarnings = FALSE, recursive = TRUE)
+
+
+# FST detection over year ---- 
+{
+  df <- read.csv("FSTrecords.csv")
+  
+  plot_data <- df %>%
+    count(FirstDetectedYear) %>%
+    complete(FirstDetectedYear = (min(df$FirstDetectedYear)-5):max(df$FirstDetectedYear), 
+             fill = list(n = 0)) %>%
+    mutate(CumulativeTotal = cumsum(n))
+  
+  ggplot(plot_data, aes(x = FirstDetectedYear, y = CumulativeTotal)) +
+    geom_area(fill = "#FFF176", alpha = 0.4) +
+    geom_line(color = "#E65100", size = 1) +
+    geom_point(data = filter(plot_data, n > 0), color = "#E65100", size = 2) +
+    scale_x_continuous(limits = c(1980, 2025), 
+                       breaks = seq(1985, 2025, 10)) +
+    theme_classic() +
+    labs(x = "Year", y = "Number of detected counties") +
+    theme(aspect.ratio = 3/4)
+  ggsave("output/time_development_counties.pdf", 
+         device = cairo_pdf, family = "Arial",
+         width = 3, height = 3)
+}
+
+# plot maps ----
+sep_plot <- F
+{
+  load("data_fmt/alabama_census.rda")
+  
+  # FST detection year
+  {
+    p_FST <- ggplot(al_map_data) +
+      geom_sf(aes(fill = FirstDetectedYear), color = "white", size = 0.2) +
+      scale_fill_viridis_c(option = "viridis", name = "First detection year") +
+      coord_sf(datum = st_crs(4326)) +
+      theme_minimal() +
+      labs(x = "Longitude", y = "Latitude") +
+      theme(
+        panel.grid.major = element_line(),
+        panel.grid.minor = element_blank()
+      )
+    ggsave(plot = p_FST, filename = "output/FST_map.pdf", 
+           device = cairo_pdf, family = "Arial",
+           width = 3, height = 3)
+  }
+  
+  # road map
+  {
+    # each year
+    if(sep_plot){
+      year_list <- names(road_sensitivity_data)
+      for(i_year in 1:length(year_list)){
+        al_roads <- road_sensitivity_data[[i_year]]$al_roads
+        al_interstates <- al_roads %>% filter(RTTYP == "I")
+        ggplot() +
+          geom_sf(data = al_counties, fill = "grey90", color = "white", size = 0.2) +
+          rasterise(geom_sf(data = al_roads, aes(color = "Secondary Roads"), size = 0.3), dpi = 300) +
+          geom_sf(data = al_interstates, aes(color = "Interstates"), size = 0.5) +
+          scale_color_manual(
+            name = "Road",
+            values = c("Secondary Roads" = "#333333", "Interstates" = "#EE6677")
+          ) +
+          theme_void() +
+          ggtitle(year_list[i_year])
+        ggsave(filename = sprintf("output/road_map/road_map_%s.pdf", year_list[i_year]), 
+               device = cairo_pdf, family = "Arial",
+               width = 3, height = 3)
+      }
+    }
+    
+    # aggregate plot
+    {
+      combined_roads <- purrr::imap_dfr(road_sensitivity_data, function(val, name) {
+        val$al_roads %>% mutate(year = name)
+      })
+      combined_interstates <- combined_roads %>% filter(RTTYP == "I")
+      
+      p <- ggplot() +
+        geom_sf(data = al_counties, fill = "grey90", color = "white", size = 0.2) +
+        rasterise(geom_sf(data = combined_roads, aes(color = "Secondary Roads"), size = 0.3), dpi = 300) +
+        geom_sf(data = combined_interstates, aes(color = "Interstates"), size = 0.5) +
+        facet_wrap(~year, ncol = 5) +
+        scale_color_manual(
+          name = "Road", values = c("Secondary Roads" = "#333333", "Interstates" = "#EE6677")
+        ) +
+        theme_void() +
+        theme(
+          strip.text = element_text(size = 12, face = "bold"), 
+          legend.position = "none"
+        )
+      
+      ggsave(filename = "output/road_maps_all_years.pdf", 
+             plot = p,
+             device = cairo_pdf, family = "Arial",
+             width = 9, height = 9)
+      ggsave(filename = "output/road_maps_all_years.svg", 
+             plot = p,
+             device = svglite, fix_text_size = FALSE, 
+             width = 9, height = 9, bg = "transparent")
+    }
+  }
+  
+  # rail
+  {
+    # each year
+    if(sep_plot){
+      year_list <- names(rail_sensitivity_data)
+      for(i_year in 1:length(year_list)){
+        al_rails_main <- rail_sensitivity_data[[i_year]]$al_rails_main
+        ggplot() +
+          geom_sf(data = al_counties, fill = "grey90", color = "white", size = 0.2) +
+          geom_sf(data = al_rails_main, color = "#4477AA", size = 0.4) +
+          theme_void() +
+          ggtitle(year_list[i_year])
+        ggsave(filename = sprintf("output/rail_map/rail_map_%s.pdf", year_list[i_year]), 
+               device = cairo_pdf, family = "Arial",
+               width = 3, height = 3)
+      }
+    }
+    
+    # aggregate plot
+    {
+      combined_rails <- purrr::imap_dfr(rail_sensitivity_data, function(val, name) {
+        val$al_rails_main %>% mutate(year = name)
+      })
+      
+      p <- ggplot() +
+        geom_sf(data = al_counties, fill = "grey90", color = "white", size = 0.2) +
+        rasterise(geom_sf(data = combined_rails,  color = "#4477AA", size = 0.4, dpi = 300)) +
+        facet_wrap(~year, ncol = 5) +
+        scale_color_manual(
+          name = "Road", values = c("Secondary Roads" = "#333333", "Interstates" = "#EE6677")
+        ) +
+        theme_void() +
+        theme(
+          strip.text = element_text(size = 12, face = "bold"), 
+          legend.position = "none"
+        )
+      
+      ggsave(filename = "output/rail_maps_all_years.pdf", 
+             plot = p,
+             device = cairo_pdf, family = "Arial",
+             width = 9, height = 9)
+      ggsave(filename = "output/rail_maps_all_years.svg", 
+             plot = p,
+             device = svglite, fix_text_size = FALSE, 
+             width = 9, height = 9, bg = "transparent")
+    }
+  }
+  
+  # overlay
+  {
+    al_interstates <- road_sensitivity_data[["2024"]]$al_roads |> filter(RTTYP == "I")
+    p_FST + 
+      rasterise(geom_sf(data = al_interstates, color = "red", size = 0.3), dpi = 300)  +
+      labs(title = "Interstates (as of 2024) overlayed")
+    ggsave("output/FST_interstate.pdf", 
+           device = cairo_pdf, family = "Arial",
+           width = 4, height = 4)
+    
+    al_rails_main <- rail_sensitivity_data[["2011"]]$al_rails_main
+    p_FST + 
+      rasterise(geom_sf(data = al_rails_main, color = "blue", size = 0.25), dpi = 300) +
+      labs(title = "Railroads (as of 2011) overlayed")
+    ggsave("output/FST_railroad.pdf", , 
+           device = cairo_pdf, family = "Arial",
+           width = 4, height = 4)
+  }
+  
+  # population
+  year_list <- al_pop |> pull(year) |> unique()
+  if(sep_plot){
+    for( i_year in year_list){
+      ggplot() +
+        geom_sf(data = al_pop |> filter(year == i_year), 
+                aes(fill = density), color = "white", size = 0.1) +
+        scale_fill_viridis_c(
+          option = "magma", 
+          labels = scales::comma,
+          name = "People per\nsq km"
+        ) +
+        theme_void() +
+        labs(title = sprintf("Alabama Population Density %d", i_year))
+      
+      ggsave(sprintf("output/pop/AL_population_density_%d.pdf", i_year), 
+             device = cairo_pdf, family = "Arial",
+             width = 4, height = 4)
+    }
+  }
+    
+  ggplot() +
+    geom_sf(data = al_pop, 
+            aes(fill = density), color = "white", size = 0.1) +
+    scale_fill_viridis_c(
+      option = "magma", 
+      labels = scales::comma,
+      name = "People per\nsq km"
+    ) +
+    facet_wrap( ~ year, ncol = 3) +
+    theme_void() +
+    labs(title = sprintf("Alabama Population Density"))+
+    theme(legend.position = "bottom")
+  
+  ggsave(sprintf("output/AL_population_density.pdf"), 
+         device = cairo_pdf, family = "Arial",
+         width = 8, height = 4)
+  ggsave(filename = "output/AL_population_density.svg", 
+         plot = p,
+         device = svglite, fix_text_size = FALSE, 
+         width = 8, height = 4, bg = "transparent")
+  
+}
+
+# time development of census data ----
+{
+  df_termite <- read.csv("FSTrecords.csv")
+  load("data_fmt/alabama_census.rda")
+  load("data_fmt/df_alabama_climate.rda")
+  
+  plot_style <- list(
+    theme_bw(base_size = 9),
+    guides(color = guide_legend(
+      direction = "horizontal", 
+      title.position = "left",
+      title.vjust = 0.5   
+    )), 
+    theme(panel.grid = element_blank(),
+          aspect.ratio = 3/4,
+          strip.background = element_blank(),
+          strip.text = element_text(face = "bold", size = 7), 
+          axis.text.x = element_text(angle = 45, hjust = 1, size = 6), 
+          axis.text.y = element_text(size = 6),
+          legend.position = c(0.85, 0.03),
+          legend.background = element_blank(), 
+          legend.text = element_text(size = 7),
+          legend.title = element_blank())
+  )
+  
+  prep_plot_data <- function(df, target_var){
+    df %>% 
+      left_join(df_termite, by = join_by(NAME == "County")) %>%
+      mutate(
+        cens = !is.na(FirstDetectedYear),
+        across(FirstDetectedYear, ~ replace_na(.x, 2025)),
+        year_till_detect = FirstDetectedYear - 1985,
+        cens = factor(cens, levels = c("TRUE", "FALSE"), labels = c("Detected", "Not Detected")),
+        NAME = fct_reorder(NAME, .data[[target_var]], .fun = max, .desc = TRUE)
+      )
+  }
+  
+  pw = 7.8
+  ph = 6
+  
+  # population
+  df_pop_plot <- prep_plot_data(df_pop, "density")
+  
+  ggplot(df_pop_plot, aes(x = year, y = density)) +
+    geom_line(aes(col = cens), linewidth = 0.7) +
+    scale_y_continuous(limits = c(0, 300), breaks = c(0,100,200,300)) +
+    scale_color_manual(name = "", values = c("Detected" = "#FF5555", "Not Detected" = "#555555")) +
+    facet_wrap(~ NAME, ncol = 10) +
+    labs(x = "", y = "Population density (/km2)") +
+    plot_style +
+    geom_vline(data = df_pop_plot |> filter(cens == "Detected"), 
+               aes(xintercept = FirstDetectedYear), linetype = "dashed", color = "darkgray")
+  
+  ggsave(filename = "output/Population_density_over_year.svg", 
+         device = svglite, fix_text_size = FALSE, 
+         width = pw, height = ph, bg = "transparent")
+  
+  # traffic
+  df_traffic_plot <- prep_plot_data(df_traffic, "road_density_wIS")
+  
+  ggplot(df_traffic_plot, aes(x = year)) +
+    geom_line(aes(y = road_density_wIS, col = cens), linewidth = 0.7) +
+    scale_color_manual(name = "", values = c("Detected" = "#FF5555", "Not Detected" = "#555555")) +
+    scale_x_continuous(limits = c(2010, 2025)) +
+    scale_y_continuous(limits = c(-0.05, 1.05), breaks = c(0,0.5,1), labels = c(0,0.5,1)) +
+    plot_style +
+    new_scale_color() + 
+    geom_line(aes(y = rail_density, col = cens), linewidth = 0.7, linetype = 4) +
+    scale_color_manual(name = "", values = c("Detected" = "#5555FF", "Not Detected" = "#555555")) +
+    new_scale_color() + 
+    geom_path(aes(y = IS_presence * 1, col = cens), linewidth = 0.7) +
+    scale_color_manual(name = "", values = c("Detected" = viridis(4)[3], "Not Detected" = "#555555")) +
+    facet_wrap(~ NAME, ncol = 10) +
+    labs(x = "", y = "Rord / Rail density (km / km2) / IS presence") +
+    geom_vline(data = df_traffic_plot |> filter(cens == "Detected"), 
+               aes(xintercept = FirstDetectedYear), linetype = "dashed", color = "darkgray")
+  
+  ggsave(filename = "output/Traffic_over_year.svg", 
+         device = svglite, fix_text_size = FALSE, 
+         width = pw, height = ph, bg = "transparent")
+  
+  # Climate
+  df_alabama_climate_plot <- prep_plot_data(df_alabama_climate, "temp_mean_C")
+  
+  ggplot(df_alabama_climate_plot, aes(x = year)) +
+    geom_path(aes(y = temp_mean_C * 1, col = cens), linewidth = 0.7) +
+    scale_color_manual(name = "", values = c("Detected" = "#FF5555", "Not Detected" = "#555555")) +
+    new_scale_color() + 
+    geom_line(aes(y = temp_min_C, col = cens), linewidth = 0.7) +
+    scale_color_manual(name = "", values = c("Detected" = "#5555FF", "Not Detected" = "#555555")) +
+    facet_wrap(~ NAME, ncol = 10) +
+    labs(x = "", y = "Temperature (°C)") +
+    plot_style+
+    geom_vline(data = df_alabama_climate_plot |> filter(cens == "Detected"), 
+               aes(xintercept = FirstDetectedYear), linetype = "dashed", color = "darkgray")
+  
+  ggsave(filename = "output/Temperature_over_year.svg", 
+         device = svglite, fix_text_size = FALSE, 
+         width = pw, height = ph, bg = "transparent")
+}
+
+# correlation ----
+{
+  load("data_fmt/df_surv.rda")
+  
+  pw = 5; ph = 5
+  var_mapping <- c(
+    "mean_temp_mean"         = "Mean Temp (1984-2025)",
+    "mean_temp_min"          = "Min Temp (1984-2025)",
+    "lat"                    = "Latitude",
+    "popdens_1980"           = "Pop Density 1980",
+    "popdens_2024"           = "Pop Density 2024",
+    #"popdens_change"         = "Pop Density Change",
+    "rail_density_2011"      = "Rail Density 2011",
+    "rail_density_2024"      = "Rail Density 2024",
+    "IS_presence_2011"       = "IS Presence 2011",
+    "IS_presence_2024"       = "IS Presence 2024",
+    "road_density_wIS_2011"  = "Road Dens w/ IS 2011",
+    "road_density_wIS_2024"  = "Road Dens w/ IS 2024",
+    "road_density_woIS_2011" = "Road Dens w/o IS 2011",
+    "road_density_woIS_2024" = "Road Dens w/o IS 2024",
+    "year_till_detect"       = "Years to Detection"
+  )
+  plot_order <- unname(var_mapping)
+  
+  df_mat <- df_surv %>% select(-county, -cens, -popdens_change)
+  cor_mat <- cor(df_mat, method = "spearman", use = "complete.obs")
+  
+  cor_df <- as.data.frame(cor_mat) %>%
+    rownames_to_column("Var1") %>%
+    pivot_longer(-Var1, names_to = "Var2", values_to = "correlation") %>%
+    filter(!is.na(correlation)) |>
+    mutate(
+      Var1 = var_mapping[Var1],
+      Var2 = var_mapping[Var2]
+    ) |>
+    mutate(
+      Var1 = factor(Var1, levels = plot_order),
+      Var2 = factor(Var2, levels = plot_order)
+    )
+  
+  ggplot(cor_df, aes(x = Var2, y = Var1, fill = correlation)) +
+    geom_tile(color = "white") +
+    geom_text(
+      #aes(label = sprintf("%.2f", correlation)), 
+      aes(label = ifelse(abs(correlation) > 0.6 & correlation < 1, sprintf("%.2f", correlation), "")),
+      color = "black", 
+      size = 2
+    ) +
+    scale_fill_distiller(
+      palette = "RdBu", 
+      limit = c(-1, 1), 
+      direction = 1,
+      name = "Spearman\nCorrelation"
+    ) +
+    theme_minimal(base_size = 8) +
+    theme(
+      axis.text.x  = element_text(angle = 45, vjust = 1, hjust = 1, color = "black"),
+      axis.text.y  = element_text(color = "black"),
+      axis.title   = element_blank(),
+      panel.grid   = element_blank(),
+      aspect.ratio = 1
+    )
+  ggsave(filename = "output/variable_correlation.svg", 
+         device = svglite, fix_text_size = FALSE, 
+         width = pw, height = ph, bg = "transparent")
+  
+}
+
+
+# survival analysis ----
+{
+  load("data_fmt/df_surv.rda")
+  
+  # all models
+  {
+    models <- list(
+      
+      # base model
+      base = coxph(Surv(year_till_detect, cens) ~ rail_density_2011 + IS_presence_2024 +
+                     road_density_wIS_2024 + lat + popdens_2024,
+                   data = df_surv),
+      
+      # different year model
+      rail_2024 = coxph(Surv(year_till_detect, cens) ~ rail_density_2024 + IS_presence_2024 +
+                          road_density_wIS_2024 + lat + popdens_2024,
+                        data = df_surv),
+      
+      road_2011 = coxph(Surv(year_till_detect, cens) ~ rail_density_2011 + IS_presence_2011 +
+                          road_density_wIS_2011 + lat + popdens_2024,
+                        data = df_surv),
+      
+      popdens_1980 = coxph(Surv(year_till_detect, cens) ~ rail_density_2011 + IS_presence_2024 +
+                             road_density_wIS_2024 + lat + popdens_1980,
+                           data = df_surv),
+      
+      # temperature model
+      temp_mean = coxph(Surv(year_till_detect, cens) ~ rail_density_2011 + IS_presence_2024 +
+                          road_density_wIS_2024 + mean_temp_mean + popdens_2024,
+                        data = df_surv),
+      
+      temp_min = coxph(Surv(year_till_detect, cens) ~ rail_density_2011 + IS_presence_2024 +
+                         road_density_wIS_2024 + mean_temp_min + popdens_2024,
+                       data = df_surv),
+      
+      # without IS for road density model 
+      road_densitywoIS = coxph(Surv(year_till_detect, cens) ~ rail_density_2011 + IS_presence_2024 +
+                     road_density_woIS_2024 + lat + popdens_2024,
+                   data = df_surv),
+      
+      road_densitywoIS2011 = coxph(Surv(year_till_detect, cens) ~ rail_density_2011 + IS_presence_2011 +
+                                 road_density_woIS_2011 + lat + popdens_2024,
+                               data = df_surv),
+      
+      # remove model
+      remove_road = coxph(Surv(year_till_detect, cens) ~ rail_density_2011 + IS_presence_2024 +
+                     lat + popdens_2024,
+                   data = df_surv),
+      
+      remove_popdens = coxph(Surv(year_till_detect, cens) ~ rail_density_2011 + road_density_woIS_2024 +
+                            IS_presence_2024 + lat,
+                          data = df_surv)
+      
+    )
+    
+    extract_cox <- function(model, model_name) {
+      broom::tidy(model, conf.int = TRUE) |>
+        mutate(model = model_name)
+    }
+    
+    cox_results <- imap_dfr(models, extract_cox)
+    
+    classify_covariant <- function(df){
+      df |> mutate(type = case_when(
+        term %in% c("IS_presence_2011TRUE", "IS_presence_2024TRUE") ~ "Interstate presence",
+        term %in% c("lat", "mean_temp_mean", "mean_temp_min") ~ "Climate",
+        term %in% c("popdens_2024", "popdens_1980") ~ "Population density",
+        term %in% c("road_density_wIS_2024", "road_density_wIS_2011",
+                    "road_density_woIS_2024", "road_density_woIS_2011") ~ "Road density",
+        term %in% c("rail_density_2024", "rail_density_2011") ~ "Rail density"
+      )) |>
+        mutate(type = factor(type, levels = c("Road density", 
+                                              "Rail density", 
+                                              "Population density", 
+                                              "Interstate presence", 
+                                              "Climate")))
+    }
+  }
+  
+  # visualization
+  {
+    model_colors <- c(
+      "Base Model"               = "#333333",
+      "Railways (2024)"          = "#2b5c8f", 
+      "Roads (2011)"             = "#4682b4", 
+      "Population Density (1980)"= "#6baed6",
+      "Mean Temperature"         = "#d95f02", 
+      "Min Temperature"          = "#fdae61",
+      "Roads without Interstate"  = "#7570b3", 
+      "Roads without IS (2011)"  = "#bcbddc",
+      "Exclude Roads"            = "#2ca25f", 
+      "Exclude Pop. Density"     = "#99d8c9"
+    )
+    model_order <- c(
+      "base",
+      "rail_2024", "road_2011", "popdens_1980",
+      "temp_mean", "temp_min",
+      "road_densitywoIS", "road_densitywoIS2011",
+      "remove_road", "remove_popdens"
+    )
+    model_labels <- c(
+      base = "Base Model",
+      rail_2024 = "Railways (2024)",
+      road_2011 = "Roads (2011)",
+      popdens_1980 = "Population Density (1980)",
+      temp_mean = "Mean Temperature",
+      temp_min = "Min Temperature",
+      road_densitywoIS = "Roads without Interstate",
+      road_densitywoIS2011 = "Roads without IS (2011)",
+      remove_road = "Exclude Roads",
+      remove_popdens = "Exclude Pop. Density"
+    )
+    
+    group_mapping <- list(
+      "Infrastructure (2024 vs 2011)" = c("base", "rail_2024", "road_2011", "popdens_1980"),
+      "Climate Variables"             = c("base", "temp_mean", "temp_min"),
+      "Road Interstate exclusion"               = c("base", "road_densitywoIS", "road_densitywoIS2011"),
+      "Removal analysis"     = c("base", "remove_road", "remove_popdens")
+    )
+    
+    group_order <- c(
+      "Infrastructure (2024 vs 2011)",
+      "Climate Variables",
+      "Road Interstate exclusion",
+      "Removal analysis"
+    )
+    
+    
+    
+    combined_df <- group_mapping |> 
+      purrr::imap_dfr(function(models, group_name) {
+        cox_results |> 
+          filter(model %in% models) |> 
+          mutate(plot_group = group_name) 
+      }) |> 
+      classify_covariant()|> 
+      mutate(
+        plot_group = factor(plot_group, levels = group_order),
+        model = factor(model, levels = model_order),
+        model = dplyr::recode(model, !!!model_labels)
+      )
+    
+    ggplot(combined_df, aes(x = estimate, y = type, color = model)) +
+      geom_vline(xintercept = 0, linetype = "dashed", color = "gray60") +
+      geom_point(position = position_dodge(width = 0.5), size = 2) +
+      geom_errorbarh(aes(xmin = conf.low, xmax = conf.high),
+                     position = position_dodge(width = 0.5),
+                     height = 0.2, linewidth = 0.6) +
+      scale_y_discrete(lim = rev) +
+      scale_color_manual(values = model_colors) +
+      facet_wrap(~ plot_group, scales = "free_y", ncol = 2) + 
+      labs(x = "Log hazard ratio", y = NULL, color = "Models") +
+      theme_bw(base_size = 9) +
+      theme(
+        aspect.ratio = 1.5,
+        panel.grid = element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_text(face = "bold"),
+        legend.background = element_blank(),
+        legend.position = "right",
+        strip.placement = "outside"
+      )
+    ggsave(filename = "output/cox_comparisons.svg", 
+           device = svglite, fix_text_size = FALSE, 
+           width = 7, height = 7, bg = "transparent")
+  }
+  
+  # tables
+  {
+    term_labels <- c(
+      rail_density_2011 = "Rail density (2011)",
+      rail_density_2024 = "Rail density (2024)",
+      road_density_wIS_2024 = "Road density incl. interstate (2024)",
+      road_density_wIS_2011 = "Road density incl. interstate (2011)",
+      road_density_woIS_2024 = "Road density excl. interstate (2024)",
+      road_density_woIS_2011 = "Road density excl. interstate (2011)",
+      IS_presence_2024TRUE = "Interstate present (2024)",
+      IS_presence_2011TRUE = "Interstate present (2011)",
+      popdens_2024 = "Population density (2024)",
+      popdens_1980 = "Population density (1980)",
+      lat = "Latitude",
+      mean_temp_mean = "Mean annual temperature",
+      mean_temp_min = "Minimum temperature"
+    )
+    
+    supp_table <- imap_dfr(models, \(mod, mod_name){
+      tidy(mod, conf.int = TRUE, exponentiate = TRUE) |>
+        mutate(
+          mod_name = dplyr::recode(mod_name, !!!model_labels),
+          term = dplyr::recode(term, !!!term_labels)
+        ) |>
+        transmute(
+          model = mod_name,
+          term,
+          HR = estimate,
+          CI_low = conf.low,
+          CI_high = conf.high,
+          p = p.value
+        )
+    }) |>
+      mutate(
+        HR_CI = sprintf("%.2f (%.2f-%.2f)", HR, CI_low, CI_high),
+        p = ifelse(p < 0.001, "<0.001", sprintf("%.3f", p))
+      ) |>
+      select(model, term, HR_CI, p)
+    
+    write.csv(supp_table, file = "output/cox_model_all.csv", row.names = FALSE)
+    
+    
+    model_stats <- imap_dfr(models, \(mod, mod_name){
+      s <- summary(mod)
+      tibble(
+        model = dplyr::recode(mod_name, !!!model_labels),
+        AIC = AIC(mod),
+        logLik = as.numeric(logLik(mod))
+      )
+      
+    })
+    
+    write.csv(model_stats, file = "output/cox_model_comp.csv", row.names = FALSE)
+  }
+  
+  # base model analysis
+  {
+    cox_mod <- models$base
+    
+    summary(cox_mod)
+    Anova(cox_mod)
+    
+    ph_test <- cox.zph(cox_mod)
+    ph_test
+    
+    cox_df <- summary(cox_mod)$coefficients %>%
+      as.data.frame() %>%
+      tibble::rownames_to_column("term") %>%
+      mutate(
+        HR = exp(coef),
+        lower = exp(coef - 1.96 * `se(coef)`),
+        upper = exp(coef + 1.96 * `se(coef)`)
+      )
+    
+    cox_df$term <- factor(
+      cox_df$term,
+      levels = rev(c("lat",    "popdens_2024",          
+                     "rail_density_2011",   "road_density_wIS_2024", "IS_presence_2024TRUE")),
+      labels = rev(c("Latitude", "Population density", 
+                     "Rail density", "Road density", "Interstate presence"
+      ))
+    )
+    
+    ggplot(cox_df, aes(x = HR, y = term)) +
+      geom_point(size = 2) +
+      geom_errorbarh(aes(xmin = lower, xmax = upper), height = 0.2) +
+      geom_vline(xintercept = 1, linetype = "dashed") +
+      scale_x_log10() +
+      labs(
+        x = "Hazard ratio (log scale)",
+        y = NULL
+      ) +
+      theme_classic() +
+      theme(
+        panel.grid.minor = element_blank(),
+        aspect.ratio = 1
+      )
+    
+    ggsave("output/cox_hazard.pdf", , 
+           device = cairo_pdf, family = "Arial",
+           width = 4, height = 4)
+  }
+  
+  # base model prediction
+  
+  risk_score_pred <- predict(cox_mod, type = "lp")
+  hazard_ratio_pred <- exp(risk_score_pred)
+  
+  risk_map <- al_map_data %>% mutate(
+    hazard_ratio = hazard_ratio_pred,
+    risk_score =risk_score_pred,
+    risk_wo_infect = if_else(is.na(FirstDetectedYear), risk_score, NA),
+    hazard_wo_infect = if_else(is.na(FirstDetectedYear), hazard_ratio, NA))
+  
+  
+  p_hazard <- ggplot(risk_map) +
+    geom_sf(aes(fill = risk_wo_infect), color = "white", size = 0.2) +
+    scale_fill_viridis(name = "Risk score", option = "inferno", direction = -1) +
+    theme_void()
+  p_hazard
+  
+  ggsave("output/AL_FST_risk.pdf", , 
+         device = cairo_pdf, family = "Arial",
+         width = 4, height = 4)
+  
+  sf <- survfit(cox_mod, newdata = df_surv)
+  detect_prob_2025 <- summary(sf, times = 40)
+  
+  detect_prob_2025$newdata
+  as.vector(detect_prob_2025$surv)
+  
+  risk_map <- risk_map %>% 
+    mutate(prop_2025 = 1-as.vector(detect_prob_2025$surv)) %>%
+    arrange(-risk_wo_infect) %>%
+    select(NAME, risk_wo_infect, hazard_wo_infect, prop_2025)
+  
+  
+  
+  ggplot(risk_map) +
+    geom_sf(fill = "gray", color = "white", size = 0.2) +
+    theme_void()
+}
+
+
+key_vars <- c(
+  "IS_presence_2011TRUE",
+  "IS_presence_2024TRUE",
+  "lat",
+  "mean_temp_mean",
+  "mean_temp_min",
+  "popdens_2024",
+  "popdens_1980",
+  "popdens_change",
+  "rail_density_2011",
+  "rail_density_2024",
+  "road_density_2024",
+  "road_density_2011"
+)
+
+
+
+# spatial autocorrelation
+library(spdep)
+
+coords <- df_pop |> filter(year == 2020) |> select(lon, lat)
+nb <- knn2nb(knearneigh(coords, k = 5))
+lw <- nb2listw(nb, style = "W")
+
+df_sp <- df_pop |> filter(year == 2020) |> left_join(df_termite, 
+                                                     by = join_by(NAME == "County")) %>%
+  mutate(cens = !is.na(FirstDetectedYear),
+         across(FirstDetectedYear, ~ tidyr::replace_na(.x, 2025)),
+         year_till_detect = FirstDetectedYear - 1985) 
+
+moran.test(df_sp$density, lw)
