@@ -1,22 +1,7 @@
-# library ----
-{
-  library(sf)         # spatial data
-  library(tigris)     # US Census shapefiles
-  library(dplyr)
-  library(tidyr)
-  library(tidycensus)
-  
-  library(stringr)
-  library(ggplot2)
-  library(viridis)
-  library(ggrastr)
-  library(ggspatial)
-  
-  library(survival)
-  library(car)
-}
+# processing.R
+# generate formatted data for output.R
 
-dir.create("data_fmt", showWarnings = FALSE, recursive = TRUE)
+source("source.R")
 
 # Alabama census data ----
 if(!file.exists("data_fmt/alabama_census.rda")){
@@ -174,8 +159,55 @@ if(!file.exists("data_fmt/alabama_census.rda")){
       mutate(rail_density = ifelse(is.na(rail_density), 0, rail_density))
   }
   
+  # traffic data 2000
+  {
+    fips_codes <- sprintf("%05d", seq(1001, 1133, by = 2))
+    dir.create("data_2000", showWarnings = FALSE)
+    
+    results <- map_dfr(fips_codes, function(fips) {
+      message(fips)
+      zipfile <- file.path("data_2000", paste0(fips, ".zip"))
+      
+      if(!file.exists(zipfile)){
+        url <- paste0("https://www2.census.gov/geo/tiger/tiger2k/al/tgr", fips, ".zip")
+        download.file(url, zipfile, mode = "wb", quiet = TRUE)
+      }
+      outdir <- sub("\\.zip$", "", zipfile)
+      if(!dir.exists(outdir)){
+        unzip(zipfile, exdir = outdir)
+      }
+      rt1_file <- list.files(
+        outdir,
+        pattern = "\\.RT1$",
+        full.names = TRUE
+      )
+      rt1 <- readLines(rt1_file)
+      cfcc <- substr(rt1, 56, 58)
+      tibble(
+        FIPS = fips,
+        A1 = sum(grepl("^A1", cfcc)),
+        A2 = sum(grepl("^A2", cfcc)),
+        A3 = sum(grepl("^A3", cfcc)),
+        A4 = sum(grepl("^A4", cfcc)),
+        A5 = sum(grepl("^A5", cfcc)),
+        B1 = sum(grepl("^B1", cfcc)),
+        B2 = sum(grepl("^B2", cfcc))
+      )
+    })
+    
+    al_counties <- counties(state = "AL", cb = TRUE, year = 2024)
+    al_counties <- al_counties |> select(COUNTYFP, NAME) |> st_drop_geometry()
+    
+    df_traffic_2000 <- results |> mutate(FIPS = str_sub(FIPS, 3,5)) |> 
+      left_join(al_counties, by = join_by("FIPS" == "COUNTYFP")) |>
+      mutate(n_road_2000 = A1 + A2 + A3 +A4 + A5,
+             n_rail_2000 = B1 + B2,
+             Highway_presence_2000 = A1 > 0) |>
+      select(-starts_with("A"), -starts_with("B"), -FIPS)
+  }
+  
   save(al_map_data, road_sensitivity_data, rail_sensitivity_data, df_traffic, 
-       al_pop, file = "data_fmt/alabama_census.rda")
+       df_traffic_2000, al_pop, file = "data_fmt/alabama_census.rda")
 }
 
 # Temperature data ----
@@ -287,6 +319,8 @@ if(!file.exists("data_fmt/df_alabama_climate.rda")){
            across(FirstDetectedYear, ~ tidyr::replace_na(.x, 2025)),
            year_till_detect = FirstDetectedYear - 1985) 
   
+  df_stat <- df_stat |> left_join(df_traffic_2000, by = join_by("county" == "NAME"))
+  
   df_surv <- df_stat %>%
     mutate(
       event = as.numeric(cens),
@@ -299,6 +333,3 @@ if(!file.exists("data_fmt/df_alabama_climate.rda")){
   
   save(df_surv, file = "data_fmt/df_surv.rda")
 }
-
-
-
