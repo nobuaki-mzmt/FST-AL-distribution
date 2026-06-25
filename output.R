@@ -396,7 +396,6 @@ sep_plot <- F
   
 }
 
-
 # survival analysis ----
 {
   load("data_fmt/df_surv.rda")

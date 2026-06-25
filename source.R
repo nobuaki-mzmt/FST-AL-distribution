@@ -11,6 +11,7 @@
   library(tidycensus)
   library(forcats)
   library(broom)
+  library(purrr)
   
   library(stringr)
   library(ggplot2)
