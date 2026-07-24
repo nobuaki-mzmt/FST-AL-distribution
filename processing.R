@@ -200,10 +200,15 @@ if(!file.exists("data_fmt/alabama_census.rda")){
     
     df_traffic_2000 <- results |> mutate(FIPS = str_sub(FIPS, 3,5)) |> 
       left_join(al_counties, by = join_by("FIPS" == "COUNTYFP")) |>
-      mutate(n_road_2000 = A1 + A2 + A3 +A4 + A5,
+      mutate(n_road_2000 = A1 + A2 + A3 +A4 + A5 ,
              n_rail_2000 = B1 + B2,
              Highway_presence_2000 = A1 > 0) |>
       select(-starts_with("A"), -starts_with("B"), -FIPS)
+    
+    df_traffic_2000 <- df_traffic_2000 |> 
+      left_join(df_pop |> filter(year == 2020) |> select(area_sq_km, NAME), by = "NAME") |>
+      mutate(road_density_2000      = n_road_2000  / area_sq_km,
+             rail_density_2000      = n_rail_2000 / area_sq_km)
   }
   
   save(al_map_data, road_sensitivity_data, rail_sensitivity_data, df_traffic, 

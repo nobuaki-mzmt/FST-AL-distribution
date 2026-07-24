@@ -425,8 +425,8 @@ sep_plot <- F
                              road_density_wIS_2024 + lat + popdens_1980,
                            data = df_surv),
       
-      traffic_2000 = coxph(Surv(year_till_detect, cens) ~ rail_density_2011 + IS_presence_2024 +
-                             road_density_wIS_2024 + lat + popdens_1980,
+      traffic_2000 = coxph(Surv(year_till_detect, cens) ~ rail_density_2000 + Highway_presence_2000 +
+                             road_density_2000 + lat + popdens_2024,
                            data = df_surv),
       
       # temperature model
@@ -467,12 +467,12 @@ sep_plot <- F
     
     classify_covariant <- function(df){
       df |> mutate(type = case_when(
-        term %in% c("IS_presence_2011TRUE", "IS_presence_2024TRUE") ~ "Interstate presence",
+        term %in% c("IS_presence_2011TRUE", "IS_presence_2024TRUE", "Highway_presence_2000TRUE") ~ "Interstate presence",
         term %in% c("lat", "mean_temp_mean", "mean_temp_min") ~ "Climate",
         term %in% c("popdens_2024", "popdens_1980") ~ "Population density",
         term %in% c("road_density_wIS_2024", "road_density_wIS_2011",
-                    "road_density_woIS_2024", "road_density_woIS_2011") ~ "Road density",
-        term %in% c("rail_density_2024", "rail_density_2011") ~ "Rail density"
+                    "road_density_woIS_2024", "road_density_woIS_2011", "road_density_2000") ~ "Road density",
+        term %in% c("rail_density_2024", "rail_density_2011", "rail_density_2000") ~ "Rail density"
       )) |>
         mutate(type = factor(type, levels = c("Road density", 
                                               "Rail density", 
