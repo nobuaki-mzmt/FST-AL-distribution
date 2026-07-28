@@ -1,6 +1,6 @@
 # processing.R
 # generate formatted data for output.R
-
+rm(list = ls())
 source("source.R")
 
 # Alabama census data ----
@@ -8,6 +8,8 @@ if(!file.exists("data_fmt/alabama_census.rda")){
   df <- read.csv("FSTrecords.csv")
   
   options(tigris_use_cache = TRUE)
+  
+  years <- 2011:2025
   
   # Alabama county was organized until 1903. So data of 2025 covers the whole C. formosanus records
   al_counties <- counties(state = "AL", cb = TRUE, year = 2025)
@@ -43,7 +45,6 @@ if(!file.exists("data_fmt/alabama_census.rda")){
       return(list(al_roads = al_roads, df_road = df_road))
     }
     
-    years <- 2011:2025
     road_sensitivity_data <- years %>% 
       set_names() %>% 
       map(~analyze_roads(target_year = .x, al_counties = al_counties))
@@ -78,7 +79,6 @@ if(!file.exists("data_fmt/alabama_census.rda")){
       return(list(al_rails_main = al_rails_main, df_rail = df_rail))
     }
     
-    years <- 2011:2025
     rail_sensitivity_data <- years %>% 
       set_names() %>% 
       map(~analyze_rails(target_year = .x, al_counties = al_counties))
@@ -217,12 +217,12 @@ if(!file.exists("data_fmt/alabama_census.rda")){
 
 # Temperature data ----
 if(!file.exists("data_fmt/df_alabama_climate.rda")){
+  files <- c(avg = "climdiv-tmpccy.txt", min = "climdiv-tmincy.txt")
   if(!file.exists("climdiv-tmpccy.txt")){
     urls <- c(
       avg = "https://www.ncei.noaa.gov/pub/data/cirs/climdiv/climdiv-tmpccy-v1.0.0-20260604",
       min = "https://www.ncei.noaa.gov/pub/data/cirs/climdiv/climdiv-tmincy-v1.0.0-20260604"
     )
-    files <- c(avg = "climdiv-tmpccy.txt", min = "climdiv-tmincy.txt")
     walk2(urls, files, ~ download.file(.x, .y, quiet = TRUE))
   }
   
@@ -293,20 +293,11 @@ if(!file.exists("data_fmt/df_alabama_climate.rda")){
       values_from = density,
       names_prefix = "popdens_"
     ) %>%
-    mutate(
-      popdens_change = popdens_2024 - popdens_1980
-    ) %>%
-    select(NAME, area_sq_km, lat, popdens_1980, popdens_2024, popdens_change)
+    dplyr::select(-lon)
   
-  df_traffic_stat <- df_traffic %>%
-    pivot_wider(
-      names_from = year,
-      values_from = c(rail_density, IS_presence, road_density_wIS, road_density_woIS)
-    ) %>%
-    select(NAME, rail_density_2011, rail_density_2024,
-           IS_presence_2011, IS_presence_2024,
-           road_density_wIS_2011, road_density_wIS_2024,
-           road_density_woIS_2011, road_density_woIS_2024)
+  df_traffic_stat <- df_traffic |>
+    pivot_wider(names_from = year, 
+                values_from = c(rail_density, IS_presence, road_density_wIS, road_density_woIS)) 
   
   df_alabama_climate_stat <- df_alabama_climate |>
     group_by(NAME) |>
@@ -322,7 +313,7 @@ if(!file.exists("data_fmt/df_alabama_climate.rda")){
     left_join(df_termite, by = c("county" = "County")) |>
     mutate(cens = !is.na(FirstDetectedYear),
            across(FirstDetectedYear, ~ tidyr::replace_na(.x, 2025)),
-           year_till_detect = FirstDetectedYear - 1985) 
+           year_till_detect = FirstDetectedYear - 1984) 
   
   df_stat <- df_stat |> left_join(df_traffic_2000, by = join_by("county" == "NAME"))
   
