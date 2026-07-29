@@ -35,7 +35,7 @@ sep_plot <- F
   
   # FST detection year
   {
-    ggplot(al_map_data) +
+    p_FST <- ggplot(al_map_data) +
       geom_sf(aes(fill = FirstDetectedYear), color = "white", size = 0.2) +
       scale_fill_viridis_c(option = "viridis", name = NULL, breaks = c(1985, 2005, 2025)) +
       coord_sf(datum = st_crs(4326), label_graticule = "W") +
@@ -50,6 +50,7 @@ sep_plot <- F
         axis.ticks.x = element_blank()
       ) +
       ggtitle("First detection year")
+    p_FST
     ggsave_pdf_svg(file_name = "FST_map", f_width = 4, f_height = 4)
   }
   
@@ -98,14 +99,8 @@ sep_plot <- F
           legend.position = "none"
         )
       
-      ggsave(filename = "output/road_maps_all_years.pdf", 
-             plot = p,
-             device = cairo_pdf, family = "Arial",
-             width = 9, height = 9)
-      ggsave(filename = "output/road_maps_all_years.svg", 
-             plot = p,
-             device = svglite, fix_text_size = FALSE, 
-             width = 9, height = 9, bg = "transparent")
+      p
+      ggsave_pdf_svg(file_name = "road_maps_all_years", f_width = 9, f_height = 9)
     }
   }
   
@@ -133,7 +128,7 @@ sep_plot <- F
         val$al_rails_main %>% mutate(year = name)
       })
       
-      p <- ggplot() +
+      ggplot() +
         geom_sf(data = al_map_data, fill = "grey90", color = "white", size = 0.2) +
         rasterise(geom_sf(data = combined_rails,  color = "#4477AA", size = 0.4, dpi = 300)) +
         facet_wrap(~year, ncol = 5) +
@@ -146,14 +141,7 @@ sep_plot <- F
           legend.position = "none"
         )
       
-      ggsave(filename = "output/rail_maps_all_years.pdf", 
-             plot = p,
-             device = cairo_pdf, family = "Arial",
-             width = 9, height = 9)
-      ggsave(filename = "output/rail_maps_all_years.svg", 
-             plot = p,
-             device = svglite, fix_text_size = FALSE, 
-             width = 9, height = 9, bg = "transparent")
+      ggsave_pdf_svg(file_name = "rail_maps_all_years", f_width = 9, f_height = 9)
     }
   }
   
@@ -177,47 +165,42 @@ sep_plot <- F
   }
   
   # population
-  year_list <- al_pop |> pull(year) |> unique()
-  if(sep_plot){
-    for( i_year in year_list){
-      ggplot() +
-        geom_sf(data = al_pop |> filter(year == i_year), 
-                aes(fill = density), color = "white", size = 0.1) +
-        scale_fill_viridis_c(
-          option = "magma", 
-          labels = scales::comma,
-          name = "People per\nsq km"
-        ) +
-        theme_void() +
-        labs(title = sprintf("Alabama Population Density %d", i_year))
-      
-      ggsave(sprintf("output/pop/AL_population_density_%d.pdf", i_year), 
-             device = cairo_pdf, family = "Arial",
-             width = 4, height = 4)
+  {
+    year_list <- al_pop |> pull(year) |> unique()
+    if(sep_plot){
+      for( i_year in year_list){
+        ggplot() +
+          geom_sf(data = al_pop |> filter(year == i_year), 
+                  aes(fill = density), color = "white", size = 0.1) +
+          scale_fill_viridis_c(
+            option = "magma", 
+            labels = scales::comma,
+            name = "People per\nsq km"
+          ) +
+          theme_void() +
+          labs(title = sprintf("Alabama Population Density %d", i_year))
+        
+        ggsave(sprintf("output/pop/AL_population_density_%d.pdf", i_year), 
+               device = cairo_pdf, family = "Arial",
+               width = 4, height = 4)
+      }
     }
-  }
+      
+    ggplot() +
+      geom_sf(data = al_pop, 
+              aes(fill = density), color = "white", size = 0.1) +
+      scale_fill_viridis_c(
+        option = "magma", 
+        labels = scales::comma,
+        name = "People per\nsq km"
+      ) +
+      facet_wrap( ~ year, ncol = 3) +
+      theme_void() +
+      labs(title = sprintf("Alabama Population Density"))+
+      theme(legend.position = "bottom")
     
-  ggplot() +
-    geom_sf(data = al_pop, 
-            aes(fill = density), color = "white", size = 0.1) +
-    scale_fill_viridis_c(
-      option = "magma", 
-      labels = scales::comma,
-      name = "People per\nsq km"
-    ) +
-    facet_wrap( ~ year, ncol = 3) +
-    theme_void() +
-    labs(title = sprintf("Alabama Population Density"))+
-    theme(legend.position = "bottom")
-  
-  ggsave(sprintf("output/AL_population_density.pdf"), 
-         device = cairo_pdf, family = "Arial",
-         width = 8, height = 4)
-  ggsave(filename = "output/AL_population_density.svg", 
-         plot = p,
-         device = svglite, fix_text_size = FALSE, 
-         width = 8, height = 4, bg = "transparent")
-  
+    ggsave_pdf_svg(file_name = "AL_population_density", f_width = 8, f_height = 4)
+  }
 }
 
 # time development of census data ----
@@ -540,81 +523,129 @@ sep_plot <- F
     }
     
     # sensitivity analysis
-    df_plot_SA <- cox_results |>  filter(str_split_i(name, "_", 1) != "traffic")|>
-      classify_covariate() |> mutate(
-        model_type = case_when(
-          grepl("pop_", name)      ~ "Population year",
-          grepl("temp_", name)     ~ "Temperature data",
-          grepl("road_wIS_", name) ~ "Road Interstate Inclusion",
-          grepl("remove_", name)   ~ "Removal analysis"
-        ),
-        model_type = factor(model_type, levels = c("Population year", "Temperature data","Road Interstate Inclusion", "Removal analysis")))  |>
-      rbind(cox_results |>  filter(name == "traffic_2011") |> classify_covariate() |> mutate(model_type = "Population year")) |>
-      rbind(cox_results |>  filter(name == "traffic_2011") |> classify_covariate() |> mutate(model_type = "Temperature data")) |>
-      rbind(cox_results |>  filter(name == "traffic_2011") |> classify_covariate() |> mutate(model_type = "Road Interstate Inclusion")) |>
-      rbind(cox_results |>  filter(name == "traffic_2011") |> classify_covariate() |> mutate(model_type = "Removal analysis"))
-    
-    model_colors <- c(
-      pop_1980 = "#c6dbef",
-      pop_1990 = "#9ecae1",
-      pop_2000 = "#6baed6",
-      pop_2010 = "#4292c6",
-      pop_2020 = "#2171b5",
-      pop_2024 = "#084594",
-      road_wIS_2011 = "#7570b3",
-      road_wIS_2025 = "#bcbddc",
-      temp_mean = "#d95f02",
-      temp_min = "#fdae61",
-      remove_road = "#2ca25f",
-      remove_popdens = "#99d8c9",
-      traffic_2011 = "#333333"
-    )
-    
-    model_labels <- c(
-      pop_1980 = "1980",
-      pop_1990 = "1990",
-      pop_2000 = "2000",
-      pop_2010 = "2010",
-      pop_2020 = "2020",
-      pop_2024 = "2024",
-      road_wIS_2011 = "2011",
-      road_wIS_2025 = "2025",
-      temp_mean = "Mean temperature",
-      temp_min = "Minimum temperature",
-      remove_road = "Exclude road density",
-      remove_popdens = "Exclude population density",
-      traffic_2011 = "Reference (2011)"
-    )
-    
-    ggplot(df_plot_SA, aes(x = estimate, y = type, color = name)) +
-      geom_vline(xintercept = 1, linetype = "dashed", color = "gray60") +
-      geom_point(position = position_dodge(width = 0.5), size = 1) +
-      geom_errorbarh(
-        aes(xmin = conf.low, xmax = conf.high),
-        position = position_dodge(width = 0.5),
-        height = 0.2,
-        linewidth = 0.2
-      ) +
-      scale_x_log10() +
-      scale_color_manual(
-        values = model_colors,
-        breaks = names(model_labels),
-        labels = model_labels
-      ) +
-      facet_wrap(~model_type, axes = "all", axis.labels = "all_x") +
-      labs(x = "Hazard ratio (log scale)", y = NULL, color = NULL) +
-      theme_classic(base_size = 9) +
-      theme(
-        aspect.ratio = 4/3,
-        panel.grid = element_blank(),
-        strip.background = element_blank(),
-        strip.text = element_text(face = "bold"),
-        legend.background = element_blank(),
-        legend.position = "bottom",
-        strip.placement = "outside"
+    {
+      df_plot_SA <- cox_results |>  filter(str_split_i(name, "_", 1) != "traffic")|>
+        classify_covariate() |> mutate(
+          model_type = case_when(
+            grepl("pop_", name)      ~ "Population year",
+            grepl("temp_", name)     ~ "Temperature data",
+            grepl("road_wIS_", name) ~ "Road Interstate Inclusion",
+            grepl("remove_", name)   ~ "Removal analysis"
+          ),
+          model_type = factor(model_type, levels = c("Population year", "Temperature data","Road Interstate Inclusion", "Removal analysis")))  |>
+        rbind(cox_results |>  filter(name == "traffic_2011") |> classify_covariate() |> mutate(model_type = "Population year")) |>
+        rbind(cox_results |>  filter(name == "traffic_2011") |> classify_covariate() |> mutate(model_type = "Temperature data")) |>
+        rbind(cox_results |>  filter(name == "traffic_2011") |> classify_covariate() |> mutate(model_type = "Road Interstate Inclusion")) |>
+        rbind(cox_results |>  filter(name == "traffic_2011") |> classify_covariate() |> mutate(model_type = "Removal analysis"))
+      
+      model_colors <- c(
+        pop_1980 = "#c6dbef",
+        pop_1990 = "#9ecae1",
+        pop_2000 = "#6baed6",
+        pop_2010 = "#4292c6",
+        pop_2020 = "#2171b5",
+        pop_2024 = "#084594",
+        road_wIS_2011 = "#7570b3",
+        road_wIS_2025 = "#bcbddc",
+        temp_mean = "#d95f02",
+        temp_min = "#fdae61",
+        remove_road = "#2ca25f",
+        remove_popdens = "#99d8c9",
+        traffic_2011 = "#333333"
       )
+      
+      model_labels <- c(
+        pop_1980 = "1980",
+        pop_1990 = "1990",
+        pop_2000 = "2000",
+        pop_2010 = "2010",
+        pop_2020 = "2020",
+        pop_2024 = "2024",
+        road_wIS_2011 = "2011",
+        road_wIS_2025 = "2025",
+        temp_mean = "Mean temperature",
+        temp_min = "Minimum temperature",
+        remove_road = "Exclude road density",
+        remove_popdens = "Exclude population density",
+        traffic_2011 = "Reference (2011)"
+      )
+      
+      ggplot(df_plot_SA, aes(x = estimate, y = type, color = name)) +
+        geom_vline(xintercept = 1, linetype = "dashed", color = "gray60") +
+        geom_point(position = position_dodge(width = 0.5), size = 1) +
+        geom_errorbarh(
+          aes(xmin = conf.low, xmax = conf.high),
+          position = position_dodge(width = 0.5),
+          height = 0.2,
+          linewidth = 0.2
+        ) +
+        scale_x_log10() +
+        scale_color_manual(
+          values = model_colors,
+          breaks = names(model_labels),
+          labels = model_labels
+        ) +
+        facet_wrap(~model_type, axes = "all", axis.labels = "all_x") +
+        labs(x = "Hazard ratio (log scale)", y = NULL, color = NULL) +
+        theme_classic(base_size = 9) +
+        theme(
+          aspect.ratio = 4/3,
+          panel.grid = element_blank(),
+          strip.background = element_blank(),
+          strip.text = element_text(face = "bold"),
+          legend.background = element_blank(),
+          legend.position = "bottom",
+          strip.placement = "outside"
+        )
+      
+      ggsave_pdf_svg(file_name = "cox_comparisons", f_width = 4, f_height = 6)
+    }
     
-    ggsave_pdf_svg(file_name = "cox_comparisons", f_width = 4, f_height = 6)
+    # 2000 data
+    {
+      df_2000 <- cox_results |>  filter(name == "traffic_2000")|>
+        rbind(cox_results |>  filter(name == "traffic_2011")) |>
+        classify_covariate()
+      
+      model_colors <- c(
+        traffic_2011 = "#333333",
+        traffic_2000 = "red4"
+      )
+      
+      model_labels <- c(
+        traffic_2011 = "Reference (2011)",
+        traffic_2000 = "Traffic (2000)"
+      )
+      
+      ggplot(df_2000, aes(x = estimate, y = type, color = name)) +
+        geom_vline(xintercept = 1, linetype = "dashed", color = "gray60") +
+        geom_point(position = position_dodge(width = 0.5), size = 1) +
+        geom_errorbarh(
+          aes(xmin = conf.low, xmax = conf.high),
+          position = position_dodge(width = 0.5),
+          height = 0.2,
+          linewidth = 0.2
+        ) +
+        scale_x_log10() +
+        scale_color_manual(
+          values = model_colors,
+          breaks = names(model_labels),
+          labels = model_labels
+        ) +
+        labs(x = "Hazard ratio (log scale)", y = NULL, color = NULL) +
+        theme_classic(base_size = 9) +
+        theme(
+          aspect.ratio = 4/3,
+          panel.grid = element_blank(),
+          strip.background = element_blank(),
+          strip.text = element_text(face = "bold"),
+          legend.background = element_blank(),
+          legend.position = "bottom",
+          strip.placement = "outside"
+        )
+      
+      ggsave_pdf_svg(file_name = "cox_2000", f_width = 4, f_height = 6)
+    }
   }
     
   # model tables
@@ -773,28 +804,30 @@ sep_plot <- F
    ggsave_pdf_svg(file_name = "AL_FST_risk", f_width = 4, f_height = 4)
    
   }
+  
+  # spatial auto-correlation
+  {
+    cox_mod <- year_models$traffic_2011
+    county_res <- residuals(cox_mod, collapse = df_surv$county)
+    
+    al_counties <- counties(state = "AL", cb = TRUE, year = 2025)
+    al_counties <- st_transform(al_counties, 3857)
+    al_counties <- al_counties |> dplyr::select(NAME)
+    
+    county_sf_res <- al_counties |>
+      arrange(match(NAME, names(county_res))) |>
+      mutate(martingale = unname(county_res[NAME]))
+    
+    # poly2nb() examines the county polygons (not distance) and creates a neighbor list
+    nb <- poly2nb(county_sf_res, row.names = county_sf_res$NAME, queen = TRUE)
+    # plot(st_geometry(county_sf_res))
+    # plot(nb, st_coordinates(st_centroid(county_sf_res)), add = TRUE)
+    
+    lw <- nb2listw(nb, style = "W", zero.policy = TRUE)
+    
+    set.seed(20260728)
+    res <- moran.mc(county_sf_res$martingale, lw, nsim = 9999, 
+             alternative = "two.sided", zero.policy = TRUE)
+    res
+  }
 }
-
-
-
-# Spatial autocorrelation
-{
-  df_termite <- read.csv("FSTrecords.csv")
-  load("data_fmt/alabama_census.rda")
-
-  df_latest <- al_pop |> filter(year == 2024) |>
-    left_join(df_termite, by=c("NAME" = "County")) |>
-    mutate(detection = !is.na(FirstDetectedYear))
-  coords <- cbind(df_latest$lon, df_latest$lat)
-  nb <- knn2nb(knearneigh(coords, k = 5))
-  lw <- nb2listw(nb, style = "W")
-  
-  moran.test(df_latest$detection*1, lw)
-  
-  df_detect <- df_latest |> filter(detection)
-  coords <- cbind(df_detect$lon, df_detect$lat)
-  nb <- knn2nb(knearneigh(coords, k = 5))
-  lw <- nb2listw(nb, style = "W")
-  
-  moran.test(df_detect$FirstDetectedYear, lw)
-}  

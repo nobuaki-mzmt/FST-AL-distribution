@@ -89,6 +89,9 @@ if(!file.exists("data_fmt/alabama_census.rda")){
     # download the csv data from NHGIS (renamed as needed)
     # NHGIS county-level census data (1980, 1990, 2000, 2010, 2020; nominal geographic integration).
     # Includes total population and urban/rural population counts for U.S. counties.
+    if(!file.exists("nhgis0002_ts_nominal_county.csv")){
+      stop("Download nhgis0002_ts_nominal_county.csv from NHGIS and place it in the project root.")
+    }
     df_pop <- read.csv("nhgis0002_ts_nominal_county.csv", header = T)
     df_pop <- df_pop |> filter(STATE == "Alabama") |>
       mutate(
@@ -218,7 +221,7 @@ if(!file.exists("data_fmt/alabama_census.rda")){
 # Temperature data ----
 if(!file.exists("data_fmt/df_alabama_climate.rda")){
   files <- c(avg = "climdiv-tmpccy.txt", min = "climdiv-tmincy.txt")
-  if(!file.exists("climdiv-tmpccy.txt")){
+  if(!all(file.exists(files))){
     urls <- c(
       avg = "https://www.ncei.noaa.gov/pub/data/cirs/climdiv/climdiv-tmpccy-v1.0.0-20260604",
       min = "https://www.ncei.noaa.gov/pub/data/cirs/climdiv/climdiv-tmincy-v1.0.0-20260604"
