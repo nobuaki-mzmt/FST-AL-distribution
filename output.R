@@ -23,13 +23,11 @@ source("source.R")
     labs(x = "Year", y = "Number of detected counties") +
     theme(aspect.ratio = 3/4)
   
-  ggsave("output/time_development_counties.pdf", 
-         device = cairo_pdf, family = "Arial",
-         width = 3, height = 3)
+  ggsave_pdf_svg(file_name = "time_development_counties", f_width = 3, f_height = 3)
 }
 
 # plot maps ----
-sep_plot <- F
+sep_plot <- T
 {
   load("data_fmt/alabama_census.rda")
   
@@ -147,18 +145,18 @@ sep_plot <- F
   
   # overlay
   {
-    al_interstates <- road_sensitivity_data[["2024"]]$al_roads |> filter(RTTYP == "I")
+    al_interstates <- road_sensitivity_data[["2025"]]$al_roads |> filter(RTTYP == "I")
     p_FST + 
       rasterise(geom_sf(data = al_interstates, color = "red", size = 0.3), dpi = 300)  +
-      labs(title = "Interstates (as of 2024) overlayed")
+      labs(title = "Interstates (as of 2025) overlayed")
     ggsave("output/FST_interstate.pdf", 
            device = cairo_pdf, family = "Arial",
            width = 4, height = 4)
     
-    al_rails_main <- rail_sensitivity_data[["2011"]]$al_rails_main
+    al_rails_main <- rail_sensitivity_data[["2025"]]$al_rails_main
     p_FST + 
       rasterise(geom_sf(data = al_rails_main, color = "blue", size = 0.25), dpi = 300) +
-      labs(title = "Railroads (as of 2011) overlayed")
+      labs(title = "Railroads (as of 2025) overlayed")
     ggsave("output/FST_railroad.pdf", , 
            device = cairo_pdf, family = "Arial",
            width = 4, height = 4)
