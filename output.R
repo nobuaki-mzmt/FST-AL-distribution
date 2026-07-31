@@ -384,7 +384,7 @@ sep_plot <- F
     "Highway_presence_2000"  = "Highway presence 2000",
     "IS_presence_2011"       = "IS Presence 2011",
     "IS_presence_2025"       = "IS Presence 2025",
-    "popdens_2024"           = "Pop Density 2025",
+    "popdens_2024"           = "Pop Density 2024",
     "rail_density_2000"      = "Rail Number Density 2000",
     "rail_density_2011"      = "Rail Density 2011",
     "rail_density_2025"      = "Rail Density 2025",
